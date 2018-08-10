@@ -7,7 +7,7 @@ import os
 import argparse
 import datetime
 
-from gi import require_version 
+from gi import require_version
 require_version("Gtk", "3.0")
 from gi.repository import Gtk, GObject, GdkPixbuf
 
@@ -27,25 +27,27 @@ sgray = '<span foreground="gray" font_family="monospace" size="small">'
 
 
 class STDetective(threading.Thread):
-    def __init__(self, gui, servers):
+    def __init__(self, gui, servers, api_key):
         super(STDetective, self).__init__()
         self.gui = gui
 
         #flag for terminating this thread when icon terminates
-        self.isOver = False 
+        self.isOver = False
 
         self.server_names = servers
         self.server_ids = []
         self.connected_ids = []
         self.connected_server_ids = []
 
-        # server_completion really lists all peers. 
-        # We only get cached values from st so it's 
+        self.request_header = {'X-API-Key': api_key}
+
+        # server_completion really lists all peers.
+        # We only get cached values from st so it's
         # not expensive to query for all of them
-        self.server_completion = {} 
+        self.server_completion = {}
 
 
-        # p as a prefix to a variable name means 
+        # p as a prefix to a variable name means
         # that this is the previously checked value
         self.connections = {}
         self.pconnections = {}
@@ -63,7 +65,7 @@ class STDetective(threading.Thread):
 
         self.DlCheckTime = datetime.datetime.today()
         self.pDlCheckTime = self.DlCheckTime
-        self.local_index_stamp =  self.DlCheckTime      
+        self.local_index_stamp =  self.DlCheckTime
 
         self.UlSpeeds = collections.deque(maxlen=2)
         self.DlSpeeds = collections.deque(maxlen=2)
@@ -76,14 +78,14 @@ class STDetective(threading.Thread):
         self.peer_completion = {}
 
     def basic_init(self):
-        # we add basic_init() (instead of calling everything from __init__()) 
+        # we add basic_init() (instead of calling everything from __init__())
         # because otherwise if the basic checks below fail gui is unresponsive
-        # (because main_loop wouldn't be working yet). This will be ran from self.run() 
-   
+        # (because main_loop wouldn't be working yet). This will be ran from self.run()
+
         self.config = self.request_config()
         self.myID = self.request_myid()
 
-        # A thread-safe way to demand gui updates. We do it here 
+        # A thread-safe way to demand gui updates. We do it here
         # because request_config() hopefully changed isSTAvailable to True
         self.update_gui()
 
@@ -111,15 +113,15 @@ class STDetective(threading.Thread):
             Gtk.main_quit()
             sys.exit()
 
-        if not self.server_names and not self.server_ids: 
+        if not self.server_names and not self.server_ids:
             self.server_ids = self.id_dict.keys()
-        else:  
+        else:
             self.server_ids = [a for a in self.id_dict.keys() if (self.id_dict[a] in self.server_names or a in self.server_ids)]
 
     def update_gui(self):
-        GObject.idle_add(lambda :self.gui.update_icon(self)) 
-        GObject.idle_add(lambda :self.gui.menu.update_menu(self)) 
-        GObject.idle_add(lambda :self.gui.peer_menu.update_menu(self)) 
+        GObject.idle_add(lambda :self.gui.update_icon(self))
+        GObject.idle_add(lambda :self.gui.menu.update_menu(self))
+        GObject.idle_add(lambda :self.gui.peer_menu.update_menu(self))
 
     def DlCheck(self):
         #~ print("DLCheck()")
@@ -128,22 +130,22 @@ class STDetective(threading.Thread):
         self.pa, self.pb,self.pc, self.pd =  self.a,self.b,self.c,self.d
         self.a,self.b,self.c,self.d= self.request_local_completion()
         self.pDlCheckTime = self.DlCheckTime
-        self.DlCheckTime = datetime.datetime.today() 
+        self.DlCheckTime = datetime.datetime.today()
         self.update_dl_state()
         self.DlSpeeds.append((self.c-self.pc)/(self.DlCheckTime-self.pDlCheckTime).total_seconds())
 
     def UlCheck(self):
         #~ print("ULCheck()")
 
-        # this is a dirty hack - we give ourselves 7 seconds of hope 
-        # that all servers will report their FolderCompletions less than 100. Otherwise 
+        # this is a dirty hack - we give ourselves 7 seconds of hope
+        # that all servers will report their FolderCompletions less than 100. Otherwise
         # the icon will go "OK" and only after FolderCompletions arrive will it go to "Sync" again
         if (datetime.datetime.today() - self.local_index_stamp).total_seconds() >7:
             self.update_ul_state()
 
-    
+
     def update_connection_data(self):
-        self.pconnections = self.connections 
+        self.pconnections = self.connections
         self.connections = self.request_connections()
 
         self.connected_ids = [ a for a in list(self.connections.keys()) if  self.connections[a]["connected"]]
@@ -158,7 +160,7 @@ class STDetective(threading.Thread):
                 out_byte_delta = self.connections[a]["outBytesTotal"] - self.pconnections[a]["outBytesTotal"]
                 in_byte_delta = self.connections[a]["inBytesTotal"] - self.pconnections[a]["inBytesTotal"]
 
-                try: 
+                try:
                     time = datetime.datetime.strptime(self.connections[a]["at"][:24], '%Y-%m-%dT%H:%M:%S.%f')
                     ptime = datetime.datetime.strptime(self.pconnections[a]["at"][:24], '%Y-%m-%dT%H:%M:%S.%f')
                 except:
@@ -166,14 +168,14 @@ class STDetective(threading.Thread):
                     time = datetime.datetime.strptime(self.connections[a]["at"][:19], '%Y-%m-%dT%H:%M:%S')
                     ptime = datetime.datetime.strptime(self.pconnections[a]["at"][:19], '%Y-%m-%dT%H:%M:%S')
 
-                if not time == ptime: 
+                if not time == ptime:
                     self.peer_ulspeeds[a].append(out_byte_delta/(time-ptime).total_seconds())
                     self.peer_dlspeeds[a].append(in_byte_delta/(time-ptime).total_seconds())
 
     def request_config(self):
         if self.isOver: sys.exit()
         try:
-            c = requests.get(STUrl+'/rest/system/config').json()
+            c = requests.get(STUrl+'/rest/system/config', headers=self.request_header).json()
             self.isSTAvailable = True
             return c
         except:
@@ -184,7 +186,7 @@ class STDetective(threading.Thread):
     def request_myid(self):
         if self.isOver: sys.exit()
         try:
-            c = requests.get(STUrl+'/rest/system/status').json()
+            c = requests.get(STUrl+'/rest/system/status', headers=self.request_header).json()
             self.isSTAvailable = True
             return c["myID"]
         except:
@@ -194,7 +196,7 @@ class STDetective(threading.Thread):
     def request_connections(self):
         if self.isOver: sys.exit()
         try:
-            connections = requests.get(STUrl+'/rest/system/connections').json()["connections"]
+            connections = requests.get(STUrl+'/rest/system/connections', headers=self.request_header).json()["connections"]
             self.isSTAvailable = True
             return connections
         except:
@@ -205,7 +207,7 @@ class STDetective(threading.Thread):
     def request_local_completion(self):
         if self.isOver: sys.exit()
         try:
-            c = requests.get(STUrl+'/rest/db/status?folder='+STFolder)
+            c = requests.get(STUrl+'/rest/db/status?folder='+STFolder, headers=self.request_header)
             self.isSTAvailable = True
             return c.json()["inSyncFiles"], c.json()["globalFiles"],  c.json()["inSyncBytes"], c.json()["globalBytes"]
         except:
@@ -216,26 +218,26 @@ class STDetective(threading.Thread):
     def request_remote_completion(self,devid):
         if self.isOver: sys.exit()
         try:
-            c = requests.get(STUrl+'/rest/db/completion?device='+devid+'&folder='+STFolder)
+            c = requests.get(STUrl+'/rest/db/completion?device='+devid+'&folder='+STFolder, headers=self.request_header)
             self.isSTAvailable = True
-            return c.json()["completion"]   
+            return c.json()["completion"]
         except:
             self.isSTAvailable = False
             return 0
 
     def request_server_completion(self):
-        for s in self.connected_ids: 
+        for s in self.connected_ids:
             self.server_completion[s] =  self.request_remote_completion(s)
 
     def request_events(self,since, Timeout):
         #~ print("request_events() "+str(Timeout))
         if self.isOver: sys.exit()
         try:
-            events = requests.get(STUrl+'/rest/events?since='+str(since), timeout=Timeout).json()
+            events = requests.get(STUrl+'/rest/events?since='+str(since), timeout=Timeout, headers=self.request_header).json()
             self.isSTAvailable = True
             return events
         except:
-            # there seems to be a bug in requests. As a workaround 
+            # there seems to be a bug in requests. As a workaround
             # we will just ignore error when Timeout is 2. If syncthing really is not
             # accessible then it will be caught soon (in request_connections for example)
             if Timeout >3:
@@ -244,39 +246,39 @@ class STDetective(threading.Thread):
 
     def update_ul_state(self):
 
-        # this seems to be the only place where server_completion 
+        # this seems to be the only place where server_completion
         # should really mean that we look only at the servers,
         # so s below is server_completion restricted to servers
         s = {}
-        for a in self.server_completion.keys(): 
-            if a in self.connected_server_ids: s[a] = self.server_completion[a] 
+        for a in self.server_completion.keys():
+            if a in self.connected_server_ids: s[a] = self.server_completion[a]
         #print(s)
 
-        if s and all((not p == 100) for p in s.values()): 
+        if s and all((not p == 100) for p in s.values()):
             self.isUploading = True
             try:
                 self.QuickestServerID =max(s.keys(), key = lambda x: s[x])
-            except: 
+            except:
                 self.QuickestServerID=''
         else:
             self.isUploading = False
             self.QuickestServerID=''
-    
+
     def update_dl_state(self):
-        if not self.a == self.b or not self.c == self.d: 
+        if not self.a == self.b or not self.c == self.d:
             self.isDownloading = True
-        else: 
+        else:
             self.isDownloading = False
 
     def run(self):
         #~ print("run()")
-        
+
         self.basic_init()
         next_event=1
 
         self.a,self.b,self.c,self.d = self.request_local_completion()
         self.update_gui()
-    
+
         while not self.isOver:
             self.update_connection_data()
             #we do basic_init because perhaps new peers appeared
@@ -286,43 +288,43 @@ class STDetective(threading.Thread):
             self.UlCheck()
             self.update_gui()
 
-            # the above calls should give correct answers as to whether 
-            # we are uploading, etc. We use also the event loop, in order to 
-            # 1) react to things quicker, 2) to know that something is happening 
+            # the above calls should give correct answers as to whether
+            # we are uploading, etc. We use also the event loop, in order to
+            # 1) react to things quicker, 2) to know that something is happening
             # so that we have to run the calls above (request_events() is blocking)
 
             be_quick = self.isDownloading or self.isUploading or any([ not t.server_completion[a] ==100 for a in self.connected_ids])
             events = self.request_events(next_event, 2 if be_quick else 65)
             for v in events:
                 #~ print(v["type"]+str(v["id"]))
-                
-                # The "stamp" is heuristic, we are giving ourselves better chances 
+
+                # The "stamp" is heuristic, we are giving ourselves better chances
                 # to report events picked-up in the event loop
-                #~ if v["type"] == "StateChanged" and v["data"]["to"] == "scanning": 
+                #~ if v["type"] == "StateChanged" and v["data"]["to"] == "scanning":
                     #~ self.isUploading = True
                     #~ self.local_index_stamp = datetime.datetime.today()
-                if v["type"] == "LocalIndexUpdated" and self.connected_server_ids: 
+                if v["type"] == "LocalIndexUpdated" and self.connected_server_ids:
                     self.isUploading = True
                     self.local_index_stamp = datetime.datetime.today()
-            
+
                 elif v["type"] == "RemoteIndexUpdated":
                     self.isDownloading = True
 
-                elif str(v["type"]) == "FolderSummary": 
+                elif str(v["type"]) == "FolderSummary":
                     w = v["data"]["summary"]
                     self.pa, self.pb,self.pc, self.pd =  self.a,self.b,self.c,self.d
                     self.a,self.b,self.c,self.d = w["inSyncFiles"], w["globalFiles"],  w["inSyncBytes"], w["globalBytes"]
                     self.pDlCheckTime = self.DlCheckTime
-                    self.DlCheckTime = datetime.datetime.today() 
+                    self.DlCheckTime = datetime.datetime.today()
                     self.DlSpeeds.append((self.c-self.pc)/(self.DlCheckTime-self.pDlCheckTime).total_seconds())
                     self.update_dl_state()
 
                 elif v["type"] == "FolderCompletion":
-                    if v["data"]["device"] in self.connected_server_ids: 
+                    if v["data"]["device"] in self.connected_server_ids:
                         self.server_completion[v["data"]["device"]] = v["data"]["completion"]
                     self.update_ul_state()
 
-            self.update_gui() 
+            self.update_gui()
             if events: next_event = events[len(events)-1]["id"]
 
         sys.exit()
@@ -343,7 +345,7 @@ class PeerMenu(Gtk.Menu):
         self.append(self.peer_info)
         self.peer_info.show()
 
-    def update_menu(self, t): 
+    def update_menu(self, t):
         all_str = gray + 'name          status        UL / DL'+span+sgray+' (KB/s)' +span
         info_str = ''
         for a in t.connected_ids:
@@ -353,14 +355,14 @@ class PeerMenu(Gtk.Menu):
             info_str = '\n'
             info_str += black + t.id_dict[a][:10] + span
             try:
-                if t.server_completion[a] == 100: 
+                if t.server_completion[a] == 100:
                     miss ='OK'
-                    info_str += green + ' '*(4+ 10-len(t.id_dict[a]))+ miss + span 
+                    info_str += green + ' '*(4+ 10-len(t.id_dict[a]))+ miss + span
                 else:
                     miss = str(round((t.d-t.server_completion[a]*t.d/100)/1000000,2))+'MB'
                     info_str += blue +' '*(4+ 10-len(t.id_dict[a])) +miss+span
                 ustr = ('%.0f' % max(0,sum(list(t.peer_ulspeeds[a]))/5000))
-                info_str += black +' '*(10-len(miss))+ ' '*(6-len(ustr))+ ustr +  ' / ' 
+                info_str += black +' '*(10-len(miss))+ ' '*(6-len(ustr))+ ustr +  ' / '
                 info_str += ('%.0f' % max(0,sum(list(t.peer_dlspeeds[a]))/5000))+span
             except: pass
             all_str +=info_str
@@ -399,21 +401,21 @@ class StikoMenu(Gtk.Menu):
         self.sep2.show()
         self.all_peers_item.show()
         self.close_item.show()
-    
-        self.connect("deactivate", self.deactivate_callback)     
+
+        self.connect("deactivate", self.deactivate_callback)
         self.set_reserve_toggle_size(False)
 
         self.close_item.get_children()[0].set_markup(black+"Close stiko"+span)
         self.all_peers_item.get_children()[0].set_markup(black+"Peer info"+span)
 
     def select_peer_menu_callback(self,x):
-        self.gui.peer_menu.is_visible = True 
+        self.gui.peer_menu.is_visible = True
 
     def deselect_peer_menu_callback(self,x):
-        self.gui.peer_menu.is_visible = False 
+        self.gui.peer_menu.is_visible = False
 
     def deactivate_callback(self, menu):
-        self.is_visible = False 
+        self.is_visible = False
 
     def update_menu(self, t):
         self.updater(t)
@@ -430,17 +432,17 @@ class StikoMenu(Gtk.Menu):
             info_str =gray+  "Connected Servers ("+str(len(t.connected_server_ids))+'/'+str(len(t.server_ids))+')'+span
             for a in t.connected_server_ids:
                 info_str += black+  '\n '+t.id_dict[a][:10] +span
-                if a in t.server_completion.keys() and t.server_completion[a] == 100: 
-                    info_str += green + ' '*(6+ 10-len(t.id_dict[a]))+ 'OK'+ span 
+                if a in t.server_completion.keys() and t.server_completion[a] == 100:
+                    info_str += green + ' '*(6+ 10-len(t.id_dict[a]))+ 'OK'+ span
                 elif a in t.server_completion.keys():
                     info_str += blue +' '*(4+ 10-len(t.id_dict[a])) +str(round((t.d-t.server_completion[a]*t.d/100)/1000000,2))+'MB'+span
                 else:
                     info_str += blue +' '*(4+ 10-len(t.id_dict[a])) +"..."+span
-        
+
 
         # Apparently this is te only way of accessing  the label of a GTk.MenuItem
         self.server_item.get_children()[0].set_markup(info_str)
-        
+
         self.server_item.set_sensitive(False)
 
         info_str =gray+ "Local Status"+span
@@ -456,7 +458,7 @@ class StikoMenu(Gtk.Menu):
         if t.isUploading:
             if not t.isDownloading: info_str +=black+'\n'+span
             if t.QuickestServerID:
-                info_str += blue + "\nUL to "+t.id_dict[t.QuickestServerID] +span 
+                info_str += blue + "\nUL to "+t.id_dict[t.QuickestServerID] +span
                 info_str += black +'\n('+str(round((t.d-t.server_completion[t.QuickestServerID]*t.d/100)/1000000,2))+'MB'
                 try:
                     info_str += ' @ '+ ('%.0f' % max(0,sum(list(t.peer_ulspeeds[t.QuickestServerID]))/5000)) +'KB/s)' +span
@@ -464,7 +466,7 @@ class StikoMenu(Gtk.Menu):
                     info_str += ')'+span
             else:
                 info_str += blue+"\nUploading... \n "+span
-    
+
         if t.isSTAvailable and len(t.connected_server_ids) and not t.isDownloading and not t.isUploading:
             info_str += green+' '*5+"OK\n\n\n"+span
         info_str += '\n'*(3-info_str.count('\n'))
@@ -485,17 +487,17 @@ class StikoGui(Gtk.StatusIcon):
             self.px_good = GdkPixbuf.Pixbuf.new_from_file(os.path.join(iconDir,'stiko-ok.png'))
             self.px_noST = GdkPixbuf.Pixbuf.new_from_file(os.path.join(iconDir,'stiko-notok.png'))
             self.px_noServer = GdkPixbuf.Pixbuf.new_from_file(os.path.join(iconDir,'stiko-inactive.png'))
-            self.px_sync = [GdkPixbuf.Pixbuf.new_from_file(os.path.join(iconDir,'stiko-sync1.png')), 
+            self.px_sync = [GdkPixbuf.Pixbuf.new_from_file(os.path.join(iconDir,'stiko-sync1.png')),
                         GdkPixbuf.Pixbuf.new_from_file(os.path.join(iconDir,'stiko-sync0.png'))]
         except:
             #~ raise
             print("I coudn't open icon files.")
-            sys.exit()  
+            sys.exit()
 
         self.set_from_pixbuf(self.px_noServer)
         self.connect('activate', self.on_left_click)
         self.connect('popup-menu', self.on_right_click)
-        
+
         self.animation_counter = 1
         self.isAnimated = False   #for controlling animation only
 
@@ -509,12 +511,12 @@ class StikoGui(Gtk.StatusIcon):
     def on_right_click(self, data, event_button, event_time):
         self.menu.popup(None,None,None,None,event_button,event_time)
         self.menu.is_visible = True
-   
+
     def update_icon(self,t):
         #print([t.isSTAvailable, len(t.connected_server_ids), t.isDownloading, t.isUploading])
-   
+
         info_str = ''
-        if not t.isSTAvailable: 
+        if not t.isSTAvailable:
             info_str += "No contact with syncthing"
             self.set_from_pixbuf(self.px_noST)
             self.isAnimated=False
@@ -544,13 +546,13 @@ class StikoGui(Gtk.StatusIcon):
                 else:
                     info_str += "\nUploading..."
 
-            if not self.isAnimated: 
+            if not self.isAnimated:
                 self.isAnimated = True
                 self.set_from_pixbuf(self.px_sync[0])
                 self.animation_counter = 1
                 GObject.timeout_add(600, self.update_icon_animate,t)
         else:
-            info_str += str(len(t.connected_server_ids))+" Server" +('s' if len(t.connected_server_ids) >1 else '')+"\nUp to Date"            
+            info_str += str(len(t.connected_server_ids))+" Server" +('s' if len(t.connected_server_ids) >1 else '')+"\nUp to Date"
             self.set_from_pixbuf(self.px_good)
             self.isAnimated=False
 
@@ -564,32 +566,34 @@ class StikoGui(Gtk.StatusIcon):
             self.set_from_pixbuf(self.px_sync[self.animation_counter])
             self.animation_counter = (self.animation_counter +  1) % 2
             return True
-        else: 
+        else:
             return False
 
 
 
-parser = argparse.ArgumentParser(description = 'This is stiko, a systray icon for syncthing.',epilog='', usage='stiko.py [options]')
+parser = argparse.ArgumentParser(description = 'This is stiko, a systray icon for syncthing.',epilog='', usage='stiko.py [options] APIKey')
 parser.add_argument('--servers', nargs = '+', default ='',help = 'List of names of devices treated as servers, space separated. If empty then all connected devices will be treated as servers.',metavar='')
 parser.add_argument('--icons',  default ='', help = 'Path to the directory with icons. Defaults to this script\'s directory ('+os.path.dirname(os.path.abspath(__file__))+')', action="store", metavar='')
 parser.add_argument('--sturl',  default ='', help = 'URL of a syncthing instance. Defaults to  "http://localhost:8384"', action="store", metavar='')
 parser.add_argument('--stfolder',  default ='', help = 'Name of the syncthing folder to monitor. Defaults to "default"', action="store", metavar='')
+parser.add_argument('APIKey', default ='', help = 'You find it in the settings of the syncthing web-interface', action="store", metavar='')
 
 args = parser.parse_args(sys.argv[1:])
 iconDir = os.path.dirname(__file__) if not args.icons else args.icons
 STUrl = "http://localhost:8384" if not args.sturl else args.sturl
 STFolder = 'default' if not args.stfolder else args.stfolder
+APIKey = "" if not args.APIKey else args.APIKey
 
 GObject.threads_init()
 
 gui = StikoGui(iconDir)
 
-t = STDetective(gui,args.servers)
+t = STDetective(gui,args.servers, APIKey)
 
 
-# we make t a daemon because http requests are 
-# blocking, so otherwise we hae to wait for 
-# termination up to 60s (or whatever the syncthing 
+# we make t a daemon because http requests are
+# blocking, so otherwise we hae to wait for
+# termination up to 60s (or whatever the syncthing
 # ping interval is)
 t.daemon = True
 
